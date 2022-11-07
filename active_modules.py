@@ -15,36 +15,36 @@ from crawler.modules.pack import Pack
 # Modules for mining privacy policies in Russian
 modules = [
 
-    # Urls(),
-    #
-    # Policies(
-    #     paths.json.websites,
-    #     paths.json.policies,
-    #     (r"политика конфиденциальности",
-    #      r"пользовательское соглашение",
-    #      r"политика безопасности",
-    #      r"правовая информация"),
-    # ),
-    #
-    # Downloader(
-    #     paths.json.policies,
-    #     paths.explicit,
-    #     paths.json.downloaded,
-    #     paths.dir.original
-    # ),
-    #
-    # Sanitization(
-    #      paths.json.downloaded,
-    #      paths.json.sanitized,
-    #      paths.dir.processed,
-    #      sanitizer_settings=sanitizer_settings
-    # ),
-    #
-    # Converter(
-    #      paths.json.sanitized,
-    #      paths.json.plain,
-    #      paths.dir.plain
-    # ),
+    Urls(),
+
+    Policies(
+        paths.json.websites,
+        paths.json.policies,
+        (r"политика конфиденциальности",
+         r"пользовательское соглашение",
+         r"политика безопасности",
+         r"правовая информация"),
+    ),
+
+    Downloader(
+        paths.json.policies,
+        paths.explicit,
+        paths.json.downloaded,
+        paths.dir.original
+    ),
+
+    Sanitization(
+         paths.json.downloaded,
+         paths.json.sanitized,
+         paths.dir.processed,
+         sanitizer_settings=sanitizer_settings
+    ),
+
+    Converter(
+         paths.json.sanitized,
+         paths.json.plain,
+         paths.dir.plain
+    ),
 
     Pack(paths.resources, paths.deploy, paths.json.downloaded, paths.json.sanitized, paths.json.plain, paths.archive)
 

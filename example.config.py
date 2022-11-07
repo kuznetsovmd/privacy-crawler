@@ -35,6 +35,7 @@ paths.dir.plain = "plain_policies"
 # Subprocesses count, 0 for all available
 sub_proc_count = 12
 
+# NUmber of attempts if an error is occurred
 max_error_attempts = 2
 max_captcha_attempts = 2
 
