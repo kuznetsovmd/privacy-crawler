@@ -12,8 +12,9 @@ from crawler.modules.sanitizer import Sanitization
 
 
 class Converter(Module):
+
     local_subs = [
-        (r"[^a-z0-9,.:;\\/\-\n\s\(\)\{\}*?!\[\]]", ""),
+        (r"[^а-яa-z0-9,.:;\\/\-\n\s\(\)\{\}*?!\[\]]", ""),
         (r"\n+", ""),
         (r"\s+", " "),
         (r"^[\n ]+", ""),
@@ -40,13 +41,16 @@ class Converter(Module):
     local_regexps = [(re.compile(s[0], flags=re.MULTILINE | re.IGNORECASE), s[1]) for s in local_subs]
     empty_tag = re.compile(r"^[ \n]*$")
 
-    def __init__(self, threshold=2000):
-        super(Converter, self).__init__()
-        self.logger = logging.getLogger(f"pid={os.getpid()}")
+    def __init__(self, sanitized_json, plain_json, plain_dir, threshold=2000):
+        super(Converter, self).__init__(sync=False)
+
+        self.sanitized_json = sanitized_json
+        self.plain_json = plain_json
+        self.plain_dir = plain_dir
         self.threshold = threshold
 
     def bootstrap(self):
-        with open(os.path.abspath(config.sanitized_json), "r") as f:
+        with open(os.path.relpath(self.sanitized_json), "r") as f:
             self.records = json.load(f)
 
     def run(self, p: Pool = None):
@@ -63,12 +67,12 @@ class Converter(Module):
                     item["plain_policy"] = plain_policy
 
     def finish(self):
-        with open(os.path.abspath(config.plain_json), "w") as f:
+        with open(os.path.relpath(self.plain_json), "w") as f:
             json.dump(self.records, f, indent=2)
 
     def plain_webpage(self, item):
 
-        with open(os.path.abspath(item), "r", encoding="utf-8") as f:
+        with open(os.path.relpath(item), "r", encoding="utf-8") as f:
             text = f.read()
 
         soup = BeautifulSoup(text, "lxml")
@@ -76,7 +80,7 @@ class Converter(Module):
         self.walk(soup, preprocess=(self.replace_a,))
         self.walk(soup, preprocess=(self.mark_li,))
         self.walk(soup, preprocess=(self.unwrap_accents,))
-        self.walk(soup, postprocess=(self.wrap_rawtext,))
+        self.walk(soup, postprocess=(self.wrap_raw_text,))
         self.walk(soup, preprocess=(self.clear_paragraphs,))
         self.walk(soup, postprocess=(self.unwrap_nested,))
         self.walk(soup, preprocess=(self.remove_empty,))
@@ -86,7 +90,7 @@ class Converter(Module):
         for r in self.global_regexps:
             text = r[0].sub(r[1], text)
 
-        policy = os.path.join(os.path.abspath(config.plain_policies), f"{os.path.basename(item)}.txt")
+        policy = os.path.join(os.path.relpath(self.plain_dir), f"{os.path.basename(item)}.txt")
 
         if len(text) < self.threshold:
             return item, None
@@ -134,7 +138,7 @@ class Converter(Module):
                 cn.unwrap()
 
     @classmethod
-    def wrap_rawtext(cls, element):
+    def wrap_raw_text(cls, element):
 
         if isinstance(element, NavigableString):
             return

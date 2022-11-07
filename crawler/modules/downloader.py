@@ -6,7 +6,6 @@ from multiprocessing import Pool
 
 from selenium.common.exceptions import WebDriverException
 
-import config
 from crawler.modules.module import Module
 from crawler.product import Product
 from crawler.web.driver import Driver
@@ -15,9 +14,15 @@ from tools.text import url_to_name
 
 class Downloader(Module):
 
-    def __init__(self):
-        super(Downloader, self).__init__()
-        self.logger = logging.getLogger(f"pid={os.getpid()}")
+    def __init__(self, policies_json, explicit_json, downloaded_json, original_policies, max_error_attempts=0):
+
+        super(Downloader, self).__init__(sync=False)
+
+        self.policies_json = policies_json
+        self.explicit_json = explicit_json
+        self.downloaded_json = downloaded_json
+        self.original_policies = original_policies
+        self.max_error_attempts = max_error_attempts
 
     def run(self, p: Pool = None):
         self.logger.info("Download")
@@ -35,21 +40,20 @@ class Downloader(Module):
 
     def bootstrap(self):
 
-        with open(os.path.abspath(config.policies_json), "r") as f:
+        with open(os.path.relpath(self.policies_json), "r") as f:
             self.records.extend(json.load(f))
 
-        with open(os.path.abspath(config.explicit_json), "r") as f:
+        with open(os.path.relpath(self.explicit_json), "r") as f:
             explicit = json.load(f)
             Product.counter = len(self.records)
             explicit = [Product(**item) for item in explicit]
             self.records.extend(explicit)
 
     def finish(self):
-        with open(os.path.abspath(config.downloaded_json), "w") as f:
+        with open(os.path.relpath(self.downloaded_json), "w") as f:
             json.dump(self.records, f, indent=2)
 
-    @classmethod
-    def get_policy(cls, policy_url):
+    def get_policy(self, policy_url):
 
         logger = logging.getLogger(f"pid={os.getpid()}")
 
@@ -66,10 +70,10 @@ class Downloader(Module):
                 logger.warning(f"Web driver exception, potentially net error")
                 driver.change_proxy()
                 net_error += 1
-                if net_error > config.max_error_attempts:
+                if net_error > self.max_error_attempts:
                     return policy_url, None, None
 
-        policy = os.path.abspath(os.path.join(config.original_policies,
+        policy = os.path.relpath(os.path.join(self.original_policies,
                                               url_to_name(policy_url)))
 
         with open(policy, "w", encoding="utf-8") as f:

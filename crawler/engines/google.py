@@ -10,7 +10,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
 
-import config
 from crawler.engines.engine import Engine
 from crawler.web.driver import Driver
 from tools.exceptions import CaptchaException
@@ -19,19 +18,26 @@ from tools.text import similarity
 
 class GoogleEngine(Engine):
 
-    def __init__(self, sim=.6, delay=0., random_delay=0.):
+    def __init__(self, sim=.6, delay=0., random_delay=0.,
+                 max_error_attempts=0, max_captcha_attempts=0, max_timeout_attempts=0):
         self.href = re.compile(r"^((https?://)?(www\.)?([\w.\-_]+)(\.\w+)).*$")
         self.request = re.compile(r"([^\w ]+)|(\s{2,})")
         self.captcha = re.compile(r"captcha", flags=re.IGNORECASE)
 
         self.similarity = sim
-        self.delay = delay
+        self.static_delay = delay
         self.random_delay = random_delay
+        self.max_error_attempts = max_error_attempts
+        self.max_captcha_attempts = max_captcha_attempts
+        self.max_timeout_attempts = max_timeout_attempts
+
         self.logger = logging.getLogger(f"pid={os.getpid()}")
 
     def search(self, manufacturer, keyword):
 
         net_error = 0
+        captcha_error = 0
+        driver_error = 0
 
         results = None
         while True:
@@ -49,19 +55,19 @@ class GoogleEngine(Engine):
             except TimeoutException:
                 self.logger.warning("Slow connection")
                 net_error += 1
-                if net_error > config.max_timeout_attempts:
+                if net_error > self.max_timeout_attempts:
                     break
 
             except CaptchaException:
                 self.logger.warning("Google knows that this is automation script")
-                net_error += 1
-                if net_error > config.max_captcha_attempts:
+                captcha_error += 1
+                if net_error > self.max_captcha_attempts:
                     break
 
             except WebDriverException:
                 self.logger.warning(f"Web driver exception, potentially net error")
-                net_error += 1
-                if net_error > config.max_error_attempts:
+                driver_error += 1
+                if net_error > self.max_error_attempts:
                     break
 
         return results
@@ -69,9 +75,9 @@ class GoogleEngine(Engine):
     def results(self, manufacturer, keyword):
         driver = Driver()
 
-        sleep(self.delay + random.random() * self.random_delay)
+        sleep(self.static_delay + random.random() * self.random_delay)
         driver.get(f"https://www.google.com")
-        sleep(self.delay + random.random() * self.random_delay)
+        sleep(self.static_delay + random.random() * self.random_delay)
 
         search = driver.manage().find_element_by_name("q")
         search.send_keys(f"{manufacturer} {keyword}")
@@ -91,18 +97,15 @@ class GoogleEngine(Engine):
         best_similarity = threshold
 
         for c in soup.findAll("cite"):
-
             m = self.href.match(c.text)
-
             if m is None:
                 break
-
-            domain = m.group(4)
 
             content_list = self.request.sub(" ", content).split()
             if len(content_list) > 1:
                 content_list.append("".join(content_list))
 
+            domain = m.group(4)
             for piece in content_list:
                 sim = similarity(piece, domain)
 

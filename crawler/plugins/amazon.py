@@ -1,32 +1,25 @@
-import logging
-import os
 import random
 import re
 from time import sleep
 
 from crawler.plugins.plugin import Plugin
-from crawler.web.driver import Driver
+from tools.exceptions import CaptchaException
 
 
 class Amazon(Plugin):
-    sanitize_label = re.compile(r"[^\w]|[_]")
-    sanitize_value = re.compile(r"[^\w ]|[_]")
+    sanitize_label = re.compile(r"[^\w]|_")
+    sanitize_value = re.compile(r"[^\w ]|_")
     manufacturer = re.compile(r"^manufacturer$", flags=re.IGNORECASE)
     captcha_catch = re.compile("sorry, we just need to "
                                "make sure you're not a robot", flags=re.IGNORECASE)
 
-    def __init__(self, keywords, pages,
-                 cooldown=0., random_cooldown=0.,
-                 captcha_cooldown=0., webdriver_error_cooldown=0.,
-                 sync=False):
-        super().__init__(keywords, pages, sync)
+    def __init__(self, keywords, pages, products_json, cooldown=0., random_cooldown=0.,
+                 max_captcha_attempts=0, max_error_attempts=0, sync=False):
 
-        self.cooldown = cooldown
-        self.random_cooldown = random_cooldown
-        self.captcha_cooldown = captcha_cooldown
-        self.webdriver_error_cooldown = webdriver_error_cooldown
-
-        self.logger = logging.getLogger(f"pid={os.getpid()}")
+        super().__init__(keywords, pages, products_json,
+                         cooldown=cooldown, random_cooldown=random_cooldown,
+                         max_captcha_attempts=max_captcha_attempts,
+                         max_error_attempts=max_error_attempts, sync=sync)
 
     def gen_search_urls(self, keyword, pages):
         return [f"https://www.amazon.com/s?k={keyword}&page={p}"
@@ -46,28 +39,9 @@ class Amazon(Plugin):
             (self.template1, self.template2, self.template3),
         ),
 
-    def on_captcha_exception(self):
-        self.logger.error("Sorry, we need to make sure that you are not a robot")
-        sleep(self.cooldown + random.random() * self.random_cooldown)
-
-        driver = Driver()
-        driver.change_proxy()
-        driver.change_useragent()
-        driver.restart_session()
-        driver.clear_cookies()
-
-    def on_webdriver_exception(self):
-        self.logger.error("Webdriver exception, potentially net error")
-        sleep(self.cooldown + random.random() * self.random_cooldown)
-
-        driver = Driver()
-        driver.change_proxy()
-        driver.restart_session()
-
     def captcha(self, markup):
         if self.captcha_catch.search(markup):
-            return True
-        return False
+            raise CaptchaException()
 
     def template1(self, body):
         try:

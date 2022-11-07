@@ -1,81 +1,32 @@
+from config import paths
+from crawler.plugins.mail_top import MailTop
 from crawler.plugins.amazon import Amazon
 from crawler.plugins.walmart import Walmart
 
+# Plugins for mining privacy policies in Russian
 plugins = [
 
-    # Walmart(["smart scales"], 1, cooldown=0., random_cooldown=0.),
-    # Walmart(["smart locks"], 1, cooldown=0., random_cooldown=0.),
-    # Amazon(["smart locks"], 1),
-
-    Walmart(["smart scale"], 50,
-            cooldown=2., random_cooldown=2., captcha_cooldown=10., webdriver_error_cooldown=10.),
-    Walmart(["smart watch", ], 50,
-            cooldown=2., random_cooldown=2., captcha_cooldown=10., webdriver_error_cooldown=10.),
-    Walmart(["smart bracelet", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart lock", ], 50,
-            cooldown=2., random_cooldown=2., captcha_cooldown=10., webdriver_error_cooldown=10.),
-    Walmart(["smart bulb", ], 50,
-            cooldown=2., random_cooldown=2., captcha_cooldown=10., webdriver_error_cooldown=10.),
-    Walmart(["smart navigation system", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart alarm clock", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart thermostat", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart plug", ], 50,
-            cooldown=2., random_cooldown=2., captcha_cooldown=10., webdriver_error_cooldown=10.),
-    Walmart(["smart light switch", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart tv", ], 50,
-            cooldown=2., random_cooldown=2., captcha_cooldown=10., webdriver_error_cooldown=10.),
-    Walmart(["smart speaker", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart thermometer", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart air conditioner", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart video doorbell", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["robot vacuum cleaner", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["smart air purifier", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["gps tracking device", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["tracking sensor", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["tracking device", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["indoor camera", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["outdoor camera", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-    Walmart(["voice controller", ], 50, cooldown=2., random_cooldown=2., captcha_cooldown=10.,
-            webdriver_error_cooldown=10.),
-
-    Amazon(["smart scale"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart watch"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart bracelet"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart lock"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart bulb"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart navigation system"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart alarm clock"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart thermostat"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart plug"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart light switch"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart tv"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart speaker"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart thermometer"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart air conditioner"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart video doorbell"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["robot vacuum cleaner"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["smart air purifier"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["gps tracking device"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["tracking sensor"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["tracking device"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["indoor camera"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["outdoor camera"], 50, cooldown=2., random_cooldown=2.),
-    Amazon(["voice controller"], 50, cooldown=2., random_cooldown=2.),
+    MailTop(["All"], 1, paths.json.websites, cooldown=2., random_cooldown=2.)
 
 ]
+
+# Plugins for mining IoT privacy policies
+# plugins = [
+#
+#     Walmart(["voice controller", "outdoor camera", "indoor camera", "tracking device", "tracking sensor",
+#              "gps tracking device", "smart air purifier", "robot vacuum cleaner", "smart video doorbell",
+#              "smart air conditioner", "smart thermometer", "smart speaker", "smart tv", "smart light switch",
+#              "smart plug", "smart thermostat", "smart alarm clock", "smart navigation system", "smart bulb",
+#              "smart lock", "smart bracelet", "smart watch", "smart scale"],
+#             50, paths.json.products,
+#             cooldown=2., random_cooldown=2.),
+#
+#     Amazon(["voice controller", "outdoor camera", "indoor camera", "tracking device", "tracking sensor",
+#              "gps tracking device", "smart air purifier", "robot vacuum cleaner", "smart video doorbell",
+#              "smart air conditioner", "smart thermometer", "smart speaker", "smart tv", "smart light switch",
+#              "smart plug", "smart thermostat", "smart alarm clock", "smart navigation system", "smart bulb",
+#              "smart lock", "smart bracelet", "smart watch", "smart scale"],
+#            50, paths.json.products,
+#            cooldown=2., random_cooldown=2.),
+#
+# ]

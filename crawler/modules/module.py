@@ -1,3 +1,5 @@
+import logging
+import os
 from multiprocessing import Pool
 
 
@@ -6,6 +8,7 @@ class Module:
     def __init__(self, sync=False):
         self.records = []
         self.sync = sync
+        self.logger = logging.getLogger(f"pid={os.getpid()}")
 
     def do_job(self, p: Pool = None):
         self.bootstrap()

@@ -1,5 +1,6 @@
 import logging
 import os
+import pathlib
 import random
 
 from selenium import webdriver
@@ -40,12 +41,12 @@ class _DriverInstance:
         self.logger = logging.getLogger(f"pid={os.getpid()}")
         self.logger.setLevel(self.config["log_level"])
 
-        self._executable_path = None
-        self._service_log_path = os.path.join(os.path.abspath(self.config["log_path"]))
+        self._script_path = pathlib.Path(__file__).parent.resolve()
+        self._service_log_path = os.path.join(os.path.relpath(self.config["log_path"]))
         self._check_installation()
 
         try:
-            self._profile = webdriver.FirefoxProfile(os.path.abspath(self.config['profile_path']))
+            self._profile = webdriver.FirefoxProfile(os.path.relpath(self.config['profile_path']))
         except Exception:
             self._profile = webdriver.FirefoxProfile()
 
@@ -56,6 +57,7 @@ class _DriverInstance:
             self._profile.set_preference("network.http.use-cache", False)
             self._profile.set_preference("dom.webdriver.enabled", False)
             self._profile.set_preference("marionette.enabled", False)
+
         self._profile.set_preference("general.useragent.override", random.choice(self.config['user_agents']))
         self._profile.set_preference("intl.accept_languages", "en-US, en")
         self._profile.update_preferences()
@@ -77,20 +79,22 @@ class _DriverInstance:
             capabilities=self._capabilities,
             service_log_path=self._service_log_path
         )
-        self._driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        with open(os.path.join(self._script_path, "navigator.js")) as script:
+            self._driver.execute_script(script.read())
 
     def _check_installation(self):
 
         self.logger.info("Checking installed driver")
 
         try:
-            with open(os.path.abspath(self.config["dotfile"]), "r") as f:
+            with open(os.path.relpath(self.config["dotfile"]), "r") as f:
                 self._executable_path = f.read()
 
         except FileNotFoundError:
             self.logger.info("Driver is not found, installing...")
             self._executable_path = GeckoDriverManager().install()
-            with open(os.path.abspath(self.config["dotfile"]), "w") as f:
+            with open(os.path.relpath(self.config["dotfile"]), "w") as f:
                 f.write(self._executable_path)
 
         self.logger.info(f"Loading driver: {self._executable_path}")
@@ -110,49 +114,8 @@ class _DriverInstance:
         self._driver.get(url)
 
         if remove_invisible:
-            self._driver.execute_script(
-                """
-                (function() {
-                
-                  function load_jq(callback) {
-                    var script = document.createElement("script")
-                    script.type = "text/javascript";
-                    script.src = "https://code.jquery.com/jquery-3.5.1.min.js";
-                    document.getElementsByTagName("head")[0].appendChild(script);
-                  }
-                
-                  function remove_invisible() {
-                    var $ = window.jQuery;
-                    $('*').each(function() {
-                      if ($(this).css('visibility') == 'hidden' ||
-                        $(this).css('display') == 'none') {
-                        $(this).remove()
-                      }
-                    });
-                  }
-                
-                
-                  function try_remove() {
-                
-                    try {
-                      remove_invisible()
-                    } catch (e) {
-                      setTimeout(try_remove, 100)
-                    }
-                
-                  }
-                
-                
-                  try {
-                    remove_invisible()
-                  } catch (e) {
-                    load_jq()
-                    setTimeout(try_remove, 100)
-                  }
-                
-                })();
-                """
-            )
+            with open(os.path.join(self._script_path, "sanitize.js")) as script:
+                self._driver.execute_script(script.read())
 
         return self._driver.page_source
 
@@ -179,17 +142,17 @@ class _DriverInstance:
 
         proxy = Proxy()
         p_str = proxy.get_proxy()
-        p = parse_proxy(p_str)
+        http, port = parse_proxy(p_str)
 
         self.logger.info(f"Switching to {p_str} proxy")
 
         self._profile.set_preference("network.proxy.type", 1)
-        self._profile.set_preference("network.proxy.http", p[0])
-        self._profile.set_preference("network.proxy.http_port", p[1])
-        self._profile.set_preference("network.proxy.ssl", p[0])
-        self._profile.set_preference("network.proxy.ssl_port", p[1])
-        self._profile.set_preference("network.proxy.ftp", p[0])
-        self._profile.set_preference("network.proxy.ftp_port", p[1])
+        self._profile.set_preference("network.proxy.http", http)
+        self._profile.set_preference("network.proxy.http_port", port)
+        self._profile.set_preference("network.proxy.ssl", http)
+        self._profile.set_preference("network.proxy.ssl_port", port)
+        self._profile.set_preference("network.proxy.ftp", http)
+        self._profile.set_preference("network.proxy.ftp_port", port)
         self._profile.update_preferences()
 
     def __del__(self):

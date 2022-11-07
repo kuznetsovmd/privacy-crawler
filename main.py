@@ -1,15 +1,16 @@
 import logging
 import os
 import signal
+
 from logging.handlers import QueueHandler
 from multiprocessing import Process
 from multiprocessing import Queue
 from multiprocessing import cpu_count, Pool
-
 from urllib3.exceptions import ProtocolError
 
-import active_modules
 import config
+import active_modules
+
 from crawler.web.driver import Driver
 from initialization import filesys
 
@@ -54,7 +55,7 @@ def logger_initializer(queue):
 
 
 def main():
-    filesys.init()
+    filesys.init(config.paths)
 
     proc_count = cpu_count()
     if config.sub_proc_count > 1 or config.sub_proc_count == 0:

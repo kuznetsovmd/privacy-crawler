@@ -1,52 +1,23 @@
 import os
 import json
 
-import config
 
+def init(paths):
 
-def init():
+    if not os.path.exists(paths.resources):
+        os.makedirs(paths.resources)
 
-    if not is_locked(config.lockfile):
+        os.chdir(paths.resources)
 
-        lock(config.lockfile)
+        os.makedirs(os.path.join(paths.resources, "json"))
 
-        json_folder = os.path.join(config.resources_abs, "json")
-        op = os.path.abspath(config.original_policies)
-        pp = os.path.abspath(config.processed_policies)
-        plp = os.path.abspath(config.plain_policies)
+        os.makedirs(paths.dir.original)
+        os.makedirs(paths.dir.processed)
+        os.makedirs(paths.dir.plain)
 
-        if not os.path.exists(config.resources_abs):
-            os.makedirs(config.resources_abs)
+        with open(os.path.relpath(paths.explicit), "w", encoding="utf-8") as f:
+            json.dump([], f, indent=2)
 
-        if not os.path.exists(json_folder):
-            os.makedirs(json_folder)
-
-        if not os.path.exists(op):
-            os.makedirs(op)
-
-        if not os.path.exists(pp):
-            os.makedirs(pp)
-
-        if not os.path.exists(plp):
-            os.makedirs(plp)
-
-        with open(os.path.abspath(config.explicit_json), "w", encoding="utf-8") as f:
-            json.dump([
-                {
-                    "manufacturer": "xiaomi",
-                    "website": "https://mi.com/global/",
-                    "policy": "https://mi.com/global/about/privacy/"
-                }
-            ], f, indent=2)
-
-
-def is_locked(path):
-    if os.path.isfile(path):
-        return True
     else:
-        return False
+        os.chdir(paths.resources)
 
-
-def lock(path):
-    f = open(path, 'w')
-    f.close()

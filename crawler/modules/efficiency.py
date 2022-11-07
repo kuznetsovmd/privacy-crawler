@@ -1,12 +1,10 @@
 import json
 import logging
 import os
-from pprint import pprint
 from multiprocessing import Pool
 
 from bs4 import BeautifulSoup
 
-import config
 from crawler.modules.module import Module
 
 
@@ -19,9 +17,11 @@ class Efficiency(Module):
     ul = 0
     table = 0
 
-    def __init__(self):
-        super(Efficiency, self).__init__()
-        self.logger = logging.getLogger(f"pid={os.getpid()}")
+    def __init__(self, plain_json, metrics_json):
+        super(Efficiency, self).__init__(sync=True)
+
+        self.plain_json = plain_json
+        self.metrics_json = metrics_json
 
         self.metrics = {
             "items_total": 0,
@@ -63,7 +63,7 @@ class Efficiency(Module):
                     item["statistics"] = stats
 
         h = 0
-        p = 0
+        p_ = 0
         li = 0
         ol = 0
         ul = 0
@@ -71,28 +71,28 @@ class Efficiency(Module):
 
         for item in {r[1]: r[0] for r in results}.values():
             h += item["headings"]
-            p += item["paragraphs"]
+            p_ += item["paragraphs"]
             li += item["list items"]
             ol += item["ordered lists"]
             ul += item["unordered lists"]
             table += item["tables"]
 
-        print(f"h {h / 592}")
-        print(f"p {p / 592}")
-        print(f"li {li / 592}")
-        print(f"ol {ol / 592}")
-        print(f"ul {ul / 592}")
-        print(f"table {table / 592}")
+        # print(f"h {h / 592}")
+        # print(f"p {p_ / 592}")
+        # print(f"li {li / 592}")
+        # print(f"ol {ol / 592}")
+        # print(f"ul {ul / 592}")
+        # print(f"table {table / 592}")
 
     def bootstrap(self):
-        with open(os.path.abspath(config.plain_json), "r", encoding="utf-8") as f:
+        with open(os.path.relpath(self.plain_json), "r", encoding="utf-8") as f:
             self.records = json.load(f)
 
     def finish(self):
-        with open(os.path.abspath(config.plain_json), "w", encoding="utf-8") as f:
+        with open(os.path.relpath(self.plain_json), "w", encoding="utf-8") as f:
             json.dump(self.records, f, indent=2)
 
-        with open(os.path.abspath(config.metrics_json), "w", encoding="utf-8") as f:
+        with open(os.path.relpath(self.metrics_json), "w", encoding="utf-8") as f:
             json.dump(self.metrics, f, indent=2)
 
     def products_statistics(self):
@@ -132,13 +132,13 @@ class Efficiency(Module):
     @classmethod
     def policy_statistics(cls, product):
 
-        with open(os.path.abspath(product["original_policy"]), "r", encoding="utf-8") as f:
+        with open(os.path.relpath(product["original_policy"]), "r", encoding="utf-8") as f:
             original_policy = BeautifulSoup(f.read(), "lxml")
 
-        with open(os.path.abspath(product["processed_policy"]), "r", encoding="utf-8") as f:
+        with open(os.path.relpath(product["processed_policy"]), "r", encoding="utf-8") as f:
             sanitized_policy = BeautifulSoup(f.read(), "lxml")
 
-        with open(os.path.abspath(product["plain_policy"]), "r", encoding="utf-8") as f:
+        with open(os.path.relpath(product["plain_policy"]), "r", encoding="utf-8") as f:
             plain_policy = f.read()
 
         paragraphs = plain_policy.split("\n")
