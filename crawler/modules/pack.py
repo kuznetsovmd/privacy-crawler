@@ -1,23 +1,21 @@
 import json
+import os
 import shutil
 from distutils.dir_util import copy_tree
 from multiprocessing import Pool
-
-import os
 from sys import platform
 
-import config
 from crawler.modules.module import Module
 
 
 class Pack(Module):
     _keys = ("original_policy", "processed_policy", "plain_policy")
 
-    def __init__(self, resources, deploy, downloaded_json, sanitized_json, plain_json, archive):
-        super(Pack, self).__init__(sync=False)
+    def __init__(self, resources, deploy, downloaded_json,
+                 sanitized_json, plain_json, archive):
+        super(Pack, self).__init__()
 
         self._files = (downloaded_json, sanitized_json, plain_json)
-
         self._resources = resources
         self._deploy = deploy
         self._archive = archive
@@ -32,9 +30,7 @@ class Pack(Module):
 
         if not os.path.exists(self._deploy):
             os.makedirs(self._deploy)
-            os.chdir(self._deploy)
-        else:
-            os.chdir(self._deploy)
+        os.chdir(self._deploy)
 
         copy_tree(self._resources, os.path.join(self._deploy))
 
@@ -46,7 +42,8 @@ class Pack(Module):
             with open(os.path.relpath(file), "w") as f:
                 json.dump(self.records, f, indent=2)
 
-        shutil.make_archive(os.path.join(self._deploy, "..", self._archive), "zip", os.path.relpath(self._deploy))
+        shutil.make_archive(os.path.join(self._deploy, "..", self._archive),
+                            "zip", os.path.relpath(self._deploy))
 
     @classmethod
     def process_record(cls, record):

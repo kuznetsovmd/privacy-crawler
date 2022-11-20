@@ -10,7 +10,7 @@ from crawler.modules.module import Module
 class Websites(Module):
 
     def __init__(self, products_json, websites_json):
-        super(Websites, self).__init__(sync=False)
+        super(Websites, self).__init__()
 
         self.products_json = products_json
         self.websites_json = websites_json
@@ -21,9 +21,7 @@ class Websites(Module):
         jobs = set([(r["manufacturer"], r["keyword"])
                     for r in self.records
                     if r["manufacturer"] is not None])
-
-        webs = [self.scrap_sites_urls(*j) for j in jobs] \
-            if p is None else p.starmap(self.scrap_sites_urls, jobs)
+        webs = p.starmap(self.scrap_sites_urls, jobs)
 
         for item in self.records:
             for manufacturer, keyword, site in webs:
@@ -37,7 +35,6 @@ class Websites(Module):
         logger.info(f"Searching: {manufacturer} {keyword}")
 
         for engine in active_engines.engines:
-
             try:
                 site = engine.search(manufacturer, keyword)
                 if site is not None:

@@ -1,8 +1,10 @@
 Web crawler for  privacy policies mining
 ----------------------------------------
 
-This project is devoted to privacy policies mining and is now adopted for IoT privacy 
-policies in English mining and for mining of websites privacy policies in Russian.
+This project is devoted to privacy policies mining and is now adopted for IoT
+privacy
+policies in English mining and for mining of websites privacy policies in
+Russian.
 
 Check list
 ----------
@@ -64,7 +66,8 @@ Bugs
 MailRuTop
 ---------
 
-Many categories are available for search. Configurable keywords for privacy policies search.
+Many categories are available for search. Configurable keywords for privacy
+policies search.
 
 IOT Devices Privacy Policies
 ----------------------------

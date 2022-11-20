@@ -4,8 +4,6 @@ import os
 from hashlib import md5
 from multiprocessing import Pool
 
-from selenium.common.exceptions import WebDriverException
-
 from crawler.modules.module import Module
 from crawler.product import Product
 from crawler.web.driver import Driver
@@ -14,23 +12,23 @@ from tools.text import url_to_name
 
 class Downloader(Module):
 
-    def __init__(self, policies_json, explicit_json, downloaded_json, original_policies, max_error_attempts=0):
+    def __init__(self, policies_json, explicit_json, downloaded_json,
+                 original_policies, cooldown=0., random_cooldown=0.):
 
-        super(Downloader, self).__init__(sync=False)
+        super(Downloader, self).__init__()
 
         self.policies_json = policies_json
         self.explicit_json = explicit_json
         self.downloaded_json = downloaded_json
         self.original_policies = original_policies
-        self.max_error_attempts = max_error_attempts
+        self.cooldown = cooldown
+        self.random_cooldown = random_cooldown
 
     def run(self, p: Pool = None):
         self.logger.info("Download")
 
         jobs = filter(None, set(r["policy"] for r in self.records))
-
-        downloaded = [self.get_policy(j) for j in jobs] \
-            if p is None else p.map(self.get_policy, jobs)
+        downloaded = p.map(self.get_policy, jobs)
 
         for item in self.records:
             for policy, policy_path, policy_hash in downloaded:
@@ -54,29 +52,16 @@ class Downloader(Module):
             json.dump(self.records, f, indent=2)
 
     def get_policy(self, policy_url):
-
         logger = logging.getLogger(f"pid={os.getpid()}")
+        logger.info(f"Getting for policy to {policy_url}")
 
-        driver = Driver()
-        net_error = 0
+        if markup := Driver().get(policy_url, cooldown=self.cooldown,
+                                  random_cooldown=self.random_cooldown,
+                                  remove_invisible=True):
+            policy = os.path.relpath(os.path.join(self.original_policies,
+                                                  url_to_name(policy_url)))
+            with open(policy, "w", encoding="utf-8") as f:
+                f.write(markup)
+            return policy_url, policy, md5(markup.encode()).hexdigest()
 
-        while True:
-            logger.info(f"Getting for policy to {policy_url}")
-            try:
-                markup = driver.get(policy_url, remove_invisible=True)
-                break
-
-            except WebDriverException:
-                logger.warning(f"Web driver exception, potentially net error")
-                driver.change_proxy()
-                net_error += 1
-                if net_error > self.max_error_attempts:
-                    return policy_url, None, None
-
-        policy = os.path.relpath(os.path.join(self.original_policies,
-                                              url_to_name(policy_url)))
-
-        with open(policy, "w", encoding="utf-8") as f:
-            f.write(markup)
-
-        return policy_url, policy, md5(markup.encode()).hexdigest()
+        return policy_url, None, None

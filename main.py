@@ -1,16 +1,15 @@
 import logging
 import os
 import signal
-
 from logging.handlers import QueueHandler
 from multiprocessing import Process
 from multiprocessing import Queue
 from multiprocessing import cpu_count, Pool
+
 from urllib3.exceptions import ProtocolError
 
-import config
 import active_modules
-
+import config
 from crawler.web.driver import Driver
 from initialization import filesys
 
@@ -46,10 +45,8 @@ def logger_initializer(queue):
 
     while True:
         record = queue.get()
-
         if record is None:
             break
-
         logger = logging.getLogger(record.name)
         logger.handle(record)
 
@@ -58,29 +55,21 @@ def main():
     filesys.init(config.paths)
 
     proc_count = cpu_count()
-    if config.sub_proc_count > 1 or config.sub_proc_count == 0:
-        if config.sub_proc_count > 1:
-            proc_count = config.sub_proc_count
+    if config.sub_proc_count > 1:
+        proc_count = config.sub_proc_count
 
-        q = Queue(-1)
-        logger_process = Process(target=logger_initializer,
-                                 args=(q,))
-        logger_process.start()
+    q = Queue(-1)
+    logger_process = Process(target=logger_initializer,
+                             args=(q,))
+    logger_process.start()
 
-        p = Pool(proc_count,
-                 initializer=worker_initializer,
-                 initargs=(q,))
+    p = Pool(proc_count,
+             initializer=worker_initializer,
+             initargs=(q,))
+    worker_initializer(q)
 
-        worker_initializer(q)
-        logger = logging.getLogger(f"pid={os.getpid()}")
-        logger.info(f"Using thread count: {config.sub_proc_count}")
-
-    else:
-        p = None
-        q = None
-        logger_process = None
-        local_initializer()
-        logger = logging.getLogger(f"pid={os.getpid()}")
+    logger = logging.getLogger(f"pid={os.getpid()}")
+    logger.info(f"Using thread count: {proc_count}")
 
     try:
         for m in active_modules.modules:
@@ -95,18 +84,14 @@ def main():
         traceback.print_exc(file=sys.stderr)
 
     finally:
+        logger.info(f"Closing process pool")
 
-        if p is not None:
-            logger.info(f"Closing process pool")
+        p.map(Driver.close, (None for _ in range(proc_count)), chunksize=1)
+        p.close()
+        p.join()
 
-            p.map(Driver.close, (None for _ in range(proc_count)), chunksize=1)
-            p.close()
-            p.join()
-
-            q.put_nowait(None)
-            logger_process.join()
-
-        Driver.close()
+        q.put_nowait(None)
+        logger_process.join()
 
 
 if __name__ == "__main__":

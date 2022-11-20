@@ -1,9 +1,8 @@
-import os
 import json
+import os
 
 
 def init(paths):
-
     if not os.path.exists(paths.resources):
         os.makedirs(paths.resources)
 
@@ -20,4 +19,3 @@ def init(paths):
 
     else:
         os.chdir(paths.resources)
-

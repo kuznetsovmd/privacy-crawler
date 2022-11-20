@@ -33,9 +33,8 @@ paths.dir.processed = "processed_policies"
 paths.dir.plain = "plain_policies"
 
 # Subprocesses count, 0 for all available
-sub_proc_count = 12
+sub_proc_count = 4
 
-# NUmber of attempts if an error is occurred
 max_error_attempts = 2
 max_captcha_attempts = 2
 
@@ -67,13 +66,17 @@ sanitizer_settings = {
 
 # Webdriver settings
 webdriver_settings = {
-    "profile_path": "C:/Users/user/AppData/Roaming/Mozilla/Firefox/Profiles/iot-profile",
+    # "profile_path": "/home/user/.cache/mozilla/firefox/test-profile",
+    "profile_path": None,
     "log_path": ".geckodriver.log",
     "dotfile": ".driver",
     "log_level": logging.INFO,
     "no_cache": False,
     "headless": True,
     "use_proxy": False,
+    "max_error_attempts": 3,
+    "max_captcha_attempts": 3,
+    "max_timeout_attempts": 3,
     "proxies": [
         "37.135.121.10:80",
         "104.248.90.212:80",

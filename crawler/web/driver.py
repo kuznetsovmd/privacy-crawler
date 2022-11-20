@@ -2,13 +2,16 @@ import logging
 import os
 import pathlib
 import random
+from time import sleep as sleep_
 
 from selenium import webdriver
+from selenium.common.exceptions import WebDriverException, TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.firefox import GeckoDriverManager
 
 import config
 from crawler.web.proxy import Proxy
+from tools.exceptions import CaptchaException
 from tools.text import parse_proxy
 
 
@@ -16,19 +19,15 @@ class Driver:
 
     @classmethod
     def __new__(cls, *args, **kwargs):
-
         if hasattr(cls, "_instance"):
             return cls._instance
-
         setattr(cls, "_instance", _DriverInstance(config.webdriver_settings))
         return getattr(cls, "_instance")
 
     @classmethod
     def close(cls, *args, **kwargs):
-
         if not hasattr(cls, "_instance"):
             return
-
         delattr(cls, "_instance")
 
 
@@ -38,16 +37,28 @@ class _DriverInstance:
 
         self.config = conf
 
+        self.max_error_attempts = conf["max_error_attempts"]
+        self.max_captcha_attempts = conf["max_captcha_attempts"]
+        self.max_timeout_attempts = conf["max_timeout_attempts"]
+
         self.logger = logging.getLogger(f"pid={os.getpid()}")
         self.logger.setLevel(self.config["log_level"])
 
         self._script_path = pathlib.Path(__file__).parent.resolve()
-        self._service_log_path = os.path.join(os.path.relpath(self.config["log_path"]))
+        self._service_log_path = os.path.join(
+            os.path.relpath(self.config["log_path"]))
+
         self._check_installation()
 
         try:
-            self._profile = webdriver.FirefoxProfile(os.path.relpath(self.config['profile_path']))
-        except Exception:
+            self._profile = webdriver.FirefoxProfile(
+                os.path.abspath(self.config['profile_path']))
+        except (ValueError, TypeError):
+            self.logger.warning("No path for profile is specified")
+        except FileNotFoundError:
+            self.logger.warning("Wrong path for profile is specified")
+        finally:
+            self.logger.warning("Using temporary profile")
             self._profile = webdriver.FirefoxProfile()
 
         if self.config["no_cache"]:
@@ -58,7 +69,8 @@ class _DriverInstance:
             self._profile.set_preference("dom.webdriver.enabled", False)
             self._profile.set_preference("marionette.enabled", False)
 
-        self._profile.set_preference("general.useragent.override", random.choice(self.config['user_agents']))
+        self._profile.set_preference("general.useragent.override",
+                                     random.choice(self.config['user_agents']))
         self._profile.set_preference("intl.accept_languages", "en-US, en")
         self._profile.update_preferences()
 
@@ -84,7 +96,6 @@ class _DriverInstance:
             self._driver.execute_script(script.read())
 
     def _check_installation(self):
-
         self.logger.info("Checking installed driver")
 
         try:
@@ -99,28 +110,74 @@ class _DriverInstance:
 
         self.logger.info(f"Loading driver: {self._executable_path}")
 
+    def get(self, url, cooldown=0, random_cooldown=0, remove_invisible=False):
+        if not url:
+            raise ValueError("Null url")
+
+        self.logger.info(f"Going to {url}")
+
+        timeout_error = 0
+        net_error = 0
+        captcha_error = 0
+        while True:
+
+            self.sleep(cooldown, random_cooldown)
+
+            if net_error >= self.max_error_attempts \
+                    or captcha_error >= self.max_captcha_attempts \
+                    or timeout_error >= self.max_timeout_attempts:
+                return None
+
+            try:
+                self._driver.get(url)
+
+                try:
+                    if self._driver.find_element_by_xpath(
+                            "//iframe[contains(@src, 'recaptcha')]"):
+                        captcha_error += 1
+                except WebDriverException:
+                    pass
+
+                if remove_invisible:
+                    self.remove_invisible()
+
+                return self._driver.page_source
+
+            except TimeoutException:
+                self.logger.warning("Slow connection")
+                timeout_error += 1
+
+            except WebDriverException:
+                self.logger.warning("Web driver exception, potentially net "
+                                    "error")
+                net_error += 1
+
+            except CaptchaException:
+                self.logger.warning("Captcha detected")
+                captcha_error += 1
+
+            finally:
+                self.change_proxy()
+                self.restart_session()
+                self.change_useragent()
+                self.clear_cookies()
+
+    @classmethod
+    def sleep(cls, cooldown, random_cooldown):
+        sleep_(cooldown + random.random() * random_cooldown)
+
     def manage(self):
         return self._driver
 
     def source(self):
         return self._driver.page_source
 
-    def get(self, url, remove_invisible=False):
-
-        if url is None:
-            raise ValueError("Null url")
-
-        self.logger.info(f"Going to {url}")
-        self._driver.get(url)
-
-        if remove_invisible:
-            with open(os.path.join(self._script_path, "sanitize.js")) as script:
-                self._driver.execute_script(script.read())
-
-        return self._driver.page_source
-
     def wait(self, event, timeout=15):
         WebDriverWait(self._driver, timeout).until(event)
+
+    def remove_invisible(self):
+        with open(os.path.join(self._script_path, "sanitize.js")) as script:
+            self._driver.execute_script(script.read())
 
     def clear_cookies(self):
         self._driver.delete_all_cookies()
@@ -136,7 +193,6 @@ class _DriverInstance:
                                    browser_profile=self._profile)
 
     def change_proxy(self):
-
         if not self.config["use_proxy"]:
             return
 
@@ -156,10 +212,8 @@ class _DriverInstance:
         self._profile.update_preferences()
 
     def __del__(self):
-
         if self._driver is None:
             return
-
         self._driver.quit()
         del self._driver
         self.logger.info("Driver has been closed")

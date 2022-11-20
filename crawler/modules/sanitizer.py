@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import re
 from multiprocessing import Pool
@@ -7,7 +6,6 @@ from multiprocessing import Pool
 from bs4 import BeautifulSoup
 from html_sanitizer import Sanitizer
 
-import config
 from crawler.modules.module import Module
 from tools.arrays import flatten_list
 
@@ -31,9 +29,12 @@ class Sanitization(Module):
     indentation = re.compile(r'^(\s*)', re.MULTILINE)
     split_html_attrs = re.compile(r"\W")
 
-    def __init__(self, downloaded_json, sanitized_json, processed_policies, sanitizer_settings):
+    processed_policies = None
+    sanitizer_settings = None
 
-        super(Sanitization, self).__init__(sync=False)
+    def __init__(self, downloaded_json, sanitized_json, processed_policies,
+                 sanitizer_settings):
+        super(Sanitization, self).__init__()
 
         self.downloaded_json = downloaded_json
         self.sanitized_json = sanitized_json
@@ -41,13 +42,11 @@ class Sanitization(Module):
         Sanitization.sanitizer_settings = sanitizer_settings
 
     def run(self, p: Pool = None):
-
         self.logger.info("Sanitization")
 
         jobs = filter(None, set([r["original_policy"] for r in self.records]))
 
-        sanitized = [self.clean_webpage(j) for j in jobs] \
-            if p is None else p.map(self.clean_webpage, jobs)
+        sanitized = p.map(self.clean_webpage, jobs)
 
         for item in self.records:
             for policy, sanitized_policy in sanitized:
@@ -64,7 +63,6 @@ class Sanitization(Module):
 
     @classmethod
     def clean_webpage(cls, item):
-
         if item is None:
             return item, None
 
@@ -75,7 +73,8 @@ class Sanitization(Module):
 
         cls.bs4_aggressive_remove(soup)
 
-        sanitized = Sanitizer(settings=cls.sanitizer_settings).sanitize(str(soup))
+        sanitized = Sanitizer(settings=cls.sanitizer_settings).sanitize(
+            str(soup))
         fresh_soup = BeautifulSoup(sanitized, "lxml")
 
         sanitized_policy = os.path.relpath(
@@ -95,7 +94,6 @@ class Sanitization(Module):
 
     @classmethod
     def bs4_aggressive_remove(cls, element):
-
         try:
             s = list(element.get("class"))
         except TypeError:
