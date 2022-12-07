@@ -1,22 +1,17 @@
 from config import paths
 from crawler.plugins.amazon import Amazon
 from crawler.plugins.mail_top import MailTop
+from crawler.plugins.rambler_top import RamblerTop
 
 # Plugins for mining privacy policies in Russian
-# plugins = [
-#
+plugins = [
+
 #     MailTop(["Cars", "World", "State", "Business", "House", "Internet",
 #              "Job", "Computers", "Culture", "Science", "Mysterious", "Rest",
 #              "Industry", "MassMedia", "Sport", "References", "Humor",
-#              "WapSites"],
-#             50, paths.json.websites, cooldown=5., random_cooldown=5.)
-#
-# ]
+#              "WapSites"], paths.json.websites, cooldown=0., random_cooldown=0.)
 
-plugins = [
-
-    MailTop(["Cars"],
-            1, paths.json.websites, cooldown=5., random_cooldown=5.)
+    RamblerTop(paths.json.websites, 2080, cooldown=4., random_cooldown=4.)
 
 ]
 

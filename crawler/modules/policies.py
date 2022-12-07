@@ -44,8 +44,9 @@ class Policies(Module):
     def scrap_policies_urls(self, website_url):
         logger = logging.getLogger(f"pid={os.getpid()}")
         logger.info(f"Getting policy for {website_url}")
-        markup = Driver().get(website_url, cooldown=self.cooldown,
-                              random_cooldown=self.random_cooldown)
+        Driver().get(website_url, cooldown=self.cooldown,
+                     random_cooldown=self.random_cooldown)
+        markup = Driver().source()
         if markup:
             policy_url = self.link_matcher.match(
                 website_url, BeautifulSoup(markup, "lxml").find("body")
@@ -53,4 +54,3 @@ class Policies(Module):
             return website_url, policy_url
 
         return website_url, None
-

@@ -19,7 +19,7 @@ class Plugin:
         self.pages = pages
         self.products_json = products_json
         self.to_query = re.compile(r"\s+")
-        self.items = []
+        self.records = []
         self.cooldown = cooldown
         self.random_cooldown = random_cooldown
 
@@ -37,11 +37,11 @@ class Plugin:
     def scrap(self, p: Pool = None):
         try:
             with open(os.path.relpath(self.products_json), "r") as f:
-                self.items = json.load(f)
+                self.records = json.load(f)
         except FileNotFoundError:
             pass
 
-        Product.counter = len(self.items)
+        Product.counter = len(self.records)
 
         for keyword in self.keywords:
             search_urls = self.gen_search_urls(self.to_query.sub("+", keyword),
@@ -53,14 +53,15 @@ class Plugin:
                         for k, u, m in
                         [(keyword, *item) for item in found_items]]
 
-            self.items.extend(products)
+            self.records.extend(products)
 
         with open(os.path.relpath(self.products_json), "w") as f:
-            json.dump(self.items, f, indent=2)
+            json.dump(self.records, f, indent=2)
 
     def scrap_page(self, url, templates):
-        markup = Driver().get(url, cooldown=self.cooldown,
-                              random_cooldown=self.random_cooldown)
+        Driver().get(url, cooldown=self.cooldown,
+                     random_cooldown=self.random_cooldown)
+        markup = Driver().source()
         if markup:
             soup = BeautifulSoup(markup, "lxml").find("body")
             for t in templates:

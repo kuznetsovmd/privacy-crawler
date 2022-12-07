@@ -13,43 +13,43 @@ from crawler.modules.websites import Websites
 # Modules for mining privacy policies in Russian
 modules = [
 
-    # Urls(),
+    Urls(),
 
-    Policies(
-        paths.json.websites,
-        paths.json.policies,
-        LinkMatcher((r"политика конфиденциальности",
-                     r"пользовательское соглашение",
-                     r"политика безопасности",
-                     r"правовая информация",
-                     r"конфиденциальность",
-                     r"условия обработки персональных данных",
-                     r"правовая информация",
-                     r"правовая информация")),
-    ),
-
-    Downloader(
-        paths.json.policies,
-        paths.explicit,
-        paths.json.downloaded,
-        paths.dir.original
-    ),
-
-    Sanitization(
-        paths.json.downloaded,
-        paths.json.sanitized,
-        paths.dir.processed,
-        sanitizer_settings=sanitizer_settings
-    ),
-
-    Converter(
-        paths.json.sanitized,
-        paths.json.plain,
-        paths.dir.plain
-    ),
-
-    Pack(paths.resources, paths.deploy, paths.json.downloaded,
-         paths.json.sanitized, paths.json.plain, paths.archive)
+    # Policies(
+    #     paths.json.websites,
+    #     paths.json.policies,
+    #     LinkMatcher((r"политика конфиденциальности",
+    #                  r"пользовательское соглашение",
+    #                  r"политика безопасности",
+    #                  r"правовая информация",
+    #                  r"конфиденциальность",
+    #                  r"условия обработки персональных данных",
+    #                  r"правовая информация",
+    #                  r"правовая информация")),
+    # ),
+    #
+    # Downloader(
+    #     paths.json.policies,
+    #     paths.explicit,
+    #     paths.json.downloaded,
+    #     paths.dir.original
+    # ),
+    #
+    # Sanitization(
+    #     paths.json.downloaded,
+    #     paths.json.sanitized,
+    #     paths.dir.processed,
+    #     sanitizer_settings=sanitizer_settings
+    # ),
+    #
+    # Converter(
+    #     paths.json.sanitized,
+    #     paths.json.plain,
+    #     paths.dir.plain
+    # ),
+    #
+    # Pack(paths.resources, paths.deploy, paths.json.downloaded,
+    #      paths.json.sanitized, paths.json.plain, paths.archive)
 
 ]
 

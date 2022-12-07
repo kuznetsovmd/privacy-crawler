@@ -55,9 +55,10 @@ class Downloader(Module):
         logger = logging.getLogger(f"pid={os.getpid()}")
         logger.info(f"Getting for policy to {policy_url}")
 
-        if markup := Driver().get(policy_url, cooldown=self.cooldown,
-                                  random_cooldown=self.random_cooldown,
-                                  remove_invisible=True):
+        Driver().get(policy_url, cooldown=self.cooldown,
+                     random_cooldown=self.random_cooldown,
+                     remove_invisible=True)
+        if markup := Driver().source():
             policy = os.path.relpath(os.path.join(self.original_policies,
                                                   url_to_name(policy_url)))
             with open(policy, "w", encoding="utf-8") as f:

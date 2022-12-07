@@ -1,6 +1,7 @@
 import logging
 import os
 import signal
+import sys
 from logging.handlers import QueueHandler
 from multiprocessing import Process
 from multiprocessing import Queue
@@ -18,25 +19,19 @@ date_format = "%H:%M:%S"
 
 
 def worker_initializer(queue):
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-
     h = logging.handlers.QueueHandler(queue)
     root = logging.getLogger()
     root.addHandler(h)
     root.setLevel(logging.INFO)
 
 
-def local_initializer():
-    logging.basicConfig(
-        format=log_format,
-        datefmt=date_format,
-        level=logging.INFO
-    )
+def worker_termination(*args, **kwargs):
+    logging.getLogger(f"pid={os.getpid()}").info("Terminating worker")
+    Driver.close()
+    sys.exit(0)
 
 
 def logger_initializer(queue):
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-
     f = logging.Formatter(log_format, date_format)
     h = logging.StreamHandler()
     h.setLevel(logging.INFO)
@@ -54,6 +49,9 @@ def logger_initializer(queue):
 def main():
     filesys.init(config.paths)
 
+    signal.signal(signal.SIGTERM, worker_termination)
+    default_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     proc_count = cpu_count()
     if config.sub_proc_count > 1:
         proc_count = config.sub_proc_count
@@ -62,7 +60,6 @@ def main():
     logger_process = Process(target=logger_initializer,
                              args=(q,))
     logger_process.start()
-
     p = Pool(proc_count,
              initializer=worker_initializer,
              initargs=(q,))
@@ -71,27 +68,30 @@ def main():
     logger = logging.getLogger(f"pid={os.getpid()}")
     logger.info(f"Using thread count: {proc_count}")
 
+    signal.signal(signal.SIGINT, default_handler)
+
+    Driver.check_installation(config.webdriver_settings)
+
     try:
         for m in active_modules.modules:
             m.do_job(p)
 
-    except ProtocolError:
-        pass
+        p.map(Driver.close, range(proc_count), chunksize=1)
 
-    except Exception:
+    except KeyboardInterrupt:
+        logger.info(f"Keyboard interruption")
+        p.terminate()
+
+    except (Exception, ProtocolError):
         import sys
         import traceback
         traceback.print_exc(file=sys.stderr)
 
-    finally:
-        logger.info(f"Closing process pool")
+    p.close()
+    p.join()
 
-        p.map(Driver.close, (None for _ in range(proc_count)), chunksize=1)
-        p.close()
-        p.join()
-
-        q.put_nowait(None)
-        logger_process.join()
+    q.put_nowait(None)
+    logger_process.join()
 
 
 if __name__ == "__main__":

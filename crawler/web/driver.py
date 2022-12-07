@@ -2,10 +2,12 @@ import logging
 import os
 import pathlib
 import random
+import tempfile
 from time import sleep as sleep_
 
 from selenium import webdriver
-from selenium.common.exceptions import WebDriverException, TimeoutException
+from selenium.common.exceptions import WebDriverException, TimeoutException, \
+    NoSuchElementException
 from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.firefox import GeckoDriverManager
 
@@ -30,6 +32,22 @@ class Driver:
             return
         delattr(cls, "_instance")
 
+    @classmethod
+    def check_installation(cls, conf):
+        logger = logging.getLogger(f"pid={os.getpid()}")
+        logger.info("Checking installed driver")
+
+        try:
+            with open(os.path.relpath(conf["dotfile"]), "r") as f:
+                executable_path = f.read()
+                logger.info(f"Driver found at {executable_path}")
+
+        except FileNotFoundError:
+            logger.info("Driver is not found, installing...")
+            executable_path = GeckoDriverManager().install()
+            with open(os.path.relpath(conf["dotfile"]), "w") as f:
+                f.write(executable_path)
+
 
 class _DriverInstance:
 
@@ -48,16 +66,18 @@ class _DriverInstance:
         self._service_log_path = os.path.join(
             os.path.relpath(self.config["log_path"]))
 
-        self._check_installation()
+        tempfile.tempdir = conf["temp_dir"]
+        try:
+            os.makedirs(tempfile.tempdir)
+        except FileExistsError:
+            pass
 
         try:
-            self._profile = webdriver.FirefoxProfile(
-                os.path.abspath(self.config['profile_path']))
-        except (ValueError, TypeError):
-            self.logger.warning("No path for profile is specified")
-        except FileNotFoundError:
+            profile = os.path.abspath(self.config['profile_path'])
+            self.logger.info(f"Using profile: {profile}")
+            self._profile = webdriver.FirefoxProfile(profile)
+        except (ValueError, TypeError, FileNotFoundError):
             self.logger.warning("Wrong path for profile is specified")
-        finally:
             self.logger.warning("Using temporary profile")
             self._profile = webdriver.FirefoxProfile()
 
@@ -84,6 +104,9 @@ class _DriverInstance:
         self._capabilities = self._options.to_capabilities()
         self._capabilities["unexpectedAlertBehaviour"] = "accept"
 
+        with open(os.path.relpath(self.config["dotfile"]), "r") as f:
+            self._executable_path = f.read()
+
         self._driver = webdriver.Firefox(
             firefox_profile=self._profile,
             firefox_options=self._options,
@@ -92,25 +115,14 @@ class _DriverInstance:
             service_log_path=self._service_log_path
         )
 
+        self._driver.set_page_load_timeout(conf["page_load_timeout"])
+        self._driver.set_script_timeout(conf["page_load_timeout"])
+
         with open(os.path.join(self._script_path, "navigator.js")) as script:
             self._driver.execute_script(script.read())
 
-    def _check_installation(self):
-        self.logger.info("Checking installed driver")
-
-        try:
-            with open(os.path.relpath(self.config["dotfile"]), "r") as f:
-                self._executable_path = f.read()
-
-        except FileNotFoundError:
-            self.logger.info("Driver is not found, installing...")
-            self._executable_path = GeckoDriverManager().install()
-            with open(os.path.relpath(self.config["dotfile"]), "w") as f:
-                f.write(self._executable_path)
-
-        self.logger.info(f"Loading driver: {self._executable_path}")
-
-    def get(self, url, cooldown=0, random_cooldown=0, remove_invisible=False):
+    def get(self, url, cooldown=0, random_cooldown=0,
+            remove_invisible=False):
         if not url:
             raise ValueError("Null url")
 
@@ -119,14 +131,11 @@ class _DriverInstance:
         timeout_error = 0
         net_error = 0
         captcha_error = 0
-        while True:
+        while net_error < self.max_error_attempts \
+                or captcha_error < self.max_captcha_attempts \
+                or timeout_error < self.max_timeout_attempts:
 
             self.sleep(cooldown, random_cooldown)
-
-            if net_error >= self.max_error_attempts \
-                    or captcha_error >= self.max_captcha_attempts \
-                    or timeout_error >= self.max_timeout_attempts:
-                return None
 
             try:
                 self._driver.get(url)
@@ -135,32 +144,27 @@ class _DriverInstance:
                     if self._driver.find_element_by_xpath(
                             "//iframe[contains(@src, 'recaptcha')]"):
                         captcha_error += 1
-                except WebDriverException:
+                except NoSuchElementException:
                     pass
-
                 if remove_invisible:
                     self.remove_invisible()
-
-                return self._driver.page_source
+                return
 
             except TimeoutException:
-                self.logger.warning("Slow connection")
+                self.logger.warning(f"Slow connection, retying {url}")
+                self.reset()
                 timeout_error += 1
 
             except WebDriverException:
-                self.logger.warning("Web driver exception, potentially net "
-                                    "error")
+                self.logger.warning(f"Web driver exception, potentially net "
+                                    f"error, retying {url}")
+                self.reset()
                 net_error += 1
 
             except CaptchaException:
-                self.logger.warning("Captcha detected")
+                self.logger.warning(f"Captcha detected, retying {url}")
+                self.reset()
                 captcha_error += 1
-
-            finally:
-                self.change_proxy()
-                self.restart_session()
-                self.change_useragent()
-                self.clear_cookies()
 
     @classmethod
     def sleep(cls, cooldown, random_cooldown):
@@ -169,11 +173,22 @@ class _DriverInstance:
     def manage(self):
         return self._driver
 
+    def reset(self):
+        self.change_proxy()
+        self.restart_session()
+        self.change_useragent()
+        self.clear_cookies()
+
     def source(self):
         return self._driver.page_source
 
-    def wait(self, event, timeout=15):
-        WebDriverWait(self._driver, timeout).until(event)
+    def wait(self, event, timeout=5):
+        try:
+            WebDriverWait(self._driver, timeout).until(event)
+            return True
+        except TimeoutException:
+            self.logger.warning("Wait timeout")
+            return False
 
     def remove_invisible(self):
         with open(os.path.join(self._script_path, "sanitize.js")) as script:
@@ -212,7 +227,7 @@ class _DriverInstance:
         self._profile.update_preferences()
 
     def __del__(self):
-        if self._driver is None:
+        if not hasattr(self, "_driver") or self._driver is None:
             return
         self._driver.quit()
         del self._driver
