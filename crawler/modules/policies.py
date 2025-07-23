@@ -1,56 +1,78 @@
-import json
-import logging
-import os
-from multiprocessing import Pool
-
-from bs4 import BeautifulSoup
+from functools import partial
+from multiprocessing.pool import Pool
 
 from crawler.modules.module import Module
-from crawler.web.driver import Driver
+from crawler.product import Product
+from tools.functions import (
+    chunked,
+    concat_files,
+    get_logger,
+    load_last_id_page,
+    read_models,
+    skip_to,
+    temp_descriptor,
+    write_models,
+)
 
 
-class Policies(Module):
+def search_website(data, engines, cooldown=2.0, random_cooldown=2.0):
+    manufacturer, keyword = data
+    logger = get_logger()
+    logger.info(f"Searching: {manufacturer} {keyword}")
 
-    def __init__(self, websites_json, policies_json, link_matcher,
-                 cooldown=0., random_cooldown=0.):
+    for engine in engines:
+        site = engine.search(manufacturer, keyword, cooldown=cooldown, random_cooldown=random_cooldown)
+        if site is not None:
+            logger.info(f"Got website {site}")
+            return manufacturer, site
 
-        super(Policies, self).__init__()
+    return manufacturer, None
 
-        self.link_matcher = link_matcher
-        self.websites_json = websites_json
-        self.policies_json = policies_json
+
+class Websites(Module):
+
+    def __init__(self, descriptor, engines, cooldown=0.0, random_cooldown=0.0, chunk_size=64):
+        self.descriptor = descriptor
+        self.engines = engines
         self.cooldown = cooldown
         self.random_cooldown = random_cooldown
+        self.chunk_size = chunk_size
+        self.logger = get_logger()
 
-    def run(self, p: Pool = None):
-        self.logger.info("Searching policies")
+    def run(self, pool: Pool = None):
+        self.logger.info("Searching websites")
 
-        jobs = set(filter(None, [r["website"] for r in self.records]))
-        privacy_policies = p.map(self.scrap_policies_urls, jobs)
+        tmp1 = temp_descriptor(self.descriptor, self.__class__.__name__, "cache")
+        tmp2 = temp_descriptor(self.descriptor, self.__class__.__name__, "tmp")
 
-        for item in self.records:
-            for website, policy in privacy_policies:
-                if website == item["website"]:
-                    item["policy"] = policy
+        search_func = partial(
+            search_website,
+            engines=self.engines,
+            cooldown=self.cooldown,
+            random_cooldown=self.random_cooldown,
+        )
 
-    def bootstrap(self):
-        with open(os.path.relpath(self.websites_json), "r") as f:
-            self.records = json.load(f)
+        last_id, _ = load_last_id_page(tmp1)
 
-    def finish(self):
-        with open(os.path.relpath(self.policies_json), "w") as f:
-            json.dump(self.records, f, indent=2)
+        products_iter = read_models(self.descriptor, Product)
+        skipped_iter = skip_to(products_iter, last_id, lambda x: x.id)
 
-    def scrap_policies_urls(self, website_url):
-        logger = logging.getLogger(f"pid={os.getpid()}")
-        logger.info(f"Getting policy for {website_url}")
-        Driver().get(website_url, cooldown=self.cooldown,
-                     random_cooldown=self.random_cooldown)
-        markup = Driver().source()
-        if markup:
-            policy_url = self.link_matcher.match(
-                website_url, BeautifulSoup(markup, "lxml").find("body")
-            )
-            return website_url, policy_url
+        site_cache = dict()
+        for models in chunked(skipped_iter, self.chunk_size):
+            models = list(models)
+            pairs = [
+                (m.manufacturer, m.keyword.replace("+", " ") if m.keyword else "")
+                for m in models if m.manufacturer and m.manufacturer not in site_cache
+            ]
 
-        return website_url, None
+            for manufacturer, website in pool.imap(search_func, pairs):
+                site_cache[manufacturer] = website
+
+            for m in models:
+                m.website = site_cache.get(m.manufacturer, None)
+
+            write_models(tmp1, models, mode="a")
+
+        concat_files([tmp1], tmp2)
+        tmp2.replace(self.descriptor)
+        

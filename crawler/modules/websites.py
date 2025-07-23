@@ -1,56 +1,61 @@
-import json
-import logging
-import os
-from multiprocessing import Pool
+from functools import partial
+from multiprocessing.pool import Pool
 
-import active_engines
 from crawler.modules.module import Module
+from crawler.product import Product
+from tools.functions import (
+    get_logger, 
+    read_models, 
+    temp_descriptor, 
+    write_models
+)
+
+
+def search_website(data, engines):
+    manufacturer, keyword = data
+    logger = get_logger()
+    logger.info(f"Searching: {manufacturer} {keyword}")
+
+    for engine in engines:
+        site = engine.search(manufacturer, keyword)
+        if site is not None:
+            logger.info(f"Got website {site}")
+            return manufacturer, site
+
+    return manufacturer, None
 
 
 class Websites(Module):
 
-    def __init__(self, products_json, websites_json):
-        super(Websites, self).__init__()
+    def __init__(self, engines, descriptor):
+        self.engines = engines
+        self.descriptor = descriptor
+        self.logger = get_logger()
 
-        self.products_json = products_json
-        self.websites_json = websites_json
-
-    def run(self, p: Pool = None):
+    def run(self, pool: Pool = None):
         self.logger.info("Searching websites")
 
-        jobs = set([(r["manufacturer"], r["keyword"])
-                    for r in self.records
-                    if r["manufacturer"] is not None])
-        webs = p.starmap(self.scrap_sites_urls, jobs)
+        tmp = temp_descriptor(self.descriptor, self.__class__.__name__, "1")
 
-        for item in self.records:
-            for manufacturer, keyword, site in webs:
-                if manufacturer == item["manufacturer"] \
-                        and keyword == item["keyword"]:
-                    item["website"] = site
+        products = read_models(self.descriptor, Product)
+        manufacturers_keywords = {
+            (p.manufacturer, p.keyword.replace("+", " ") if p.keyword else "")
+            for p in products if p.manufacturer
+        }
 
-    @classmethod
-    def scrap_sites_urls(cls, manufacturer, keyword):
-        logger = logging.getLogger(f"pid={os.getpid()}")
-        logger.info(f"Searching: {manufacturer} {keyword}")
+        search_func = partial(
+            search_website,
+            engines=self.engines,
+            cooldown=2.0,
+            random_cooldown=2.0
+        )
 
-        for engine in active_engines.engines:
-            try:
-                site = engine.search(manufacturer, keyword)
-                if site is not None:
-                    logger.info(f"Got {site} website")
-                    return manufacturer, keyword, site
+        manufacturer_website = dict(pool.map(search_func, manufacturers_keywords))
 
-            except Exception as e:
-                logger.error(e)
-                continue
+        for p in products:
+            if p.manufacturer:
+                p.website = manufacturer_website.get(p.manufacturer)
 
-        return manufacturer, keyword, None
-
-    def bootstrap(self):
-        with open(os.path.relpath(self.products_json), "r") as f:
-            self.records = json.load(f)
-
-    def finish(self):
-        with open(os.path.relpath(self.websites_json), "w") as f:
-            json.dump(self.records, f, indent=2)
+        write_models(tmp, products)
+        tmp.replace(self.descriptor)
+        

@@ -1,4 +1,9 @@
-class Engine:
+from abc import ABC, abstractmethod
 
-    def search(self, manufacturer, keyword):
-        raise NotImplementedError("Engine is not implemented")
+
+class Engine(ABC):
+    
+    @abstractmethod
+    def search(self, manufacturer: str, keyword: str):
+        pass
+        

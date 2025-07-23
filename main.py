@@ -1,43 +1,62 @@
-import logging
-import os
-import signal
+import atexit
 import sys
-from logging.handlers import QueueHandler
+import logging
+import signal
+import logging.handlers
+
 from multiprocessing import Process
 from multiprocessing import Queue
 from multiprocessing import cpu_count, Pool
 
-from urllib3.exceptions import ProtocolError
+from active_modules import modules
 
-import active_modules
-import config
+from env import config
 from crawler.web.driver import Driver
-from initialization import filesys
-
-log_format = "%(asctime)s - [%(name)s] %(levelname)s: %(message)s"
-date_format = "%H:%M:%S"
+from tools.functions import get_logger, init
 
 
-def worker_initializer(queue):
-    h = logging.handlers.QueueHandler(queue)
+class ExitFilter(logging.Filter):
+    def filter(self, record):
+        if not record.exc_info:
+            return True
+        _, exc_value, _ = record.exc_info
+        return not isinstance(exc_value, (SystemExit, BrokenPipeError))
+
+
+def sysexit(*_):
+    logger = get_logger()
+    logger.info("Closing worker")
+    raise SystemExit(0)
+
+
+def init_logger(queue):
     root = logging.getLogger()
-    root.addHandler(h)
     root.setLevel(logging.INFO)
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
+    h = logging.handlers.QueueHandler(queue)
+    root.addHandler(h)
 
 
-def worker_termination(*args, **kwargs):
-    logging.getLogger(f"pid={os.getpid()}").info("Terminating worker")
+def worker_constructor(queue):
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, sysexit)
+    atexit.register(worker_destructor)
+    init_logger(queue)
+
+
+def worker_destructor():
     Driver.close()
-    sys.exit(0)
-
+    
 
 def logger_initializer(queue):
-    f = logging.Formatter(log_format, date_format)
-    h = logging.StreamHandler()
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    f = logging.Formatter("%(asctime)s - [%(name)s] %(levelname)s: %(message)s", "%H:%M:%S")
+    h = logging.StreamHandler(sys.stdout)
+    h.addFilter(ExitFilter())
     h.setLevel(logging.INFO)
     h.setFormatter(f)
     logging.getLogger().addHandler(h)
-
     while True:
         record = queue.get()
         if record is None:
@@ -47,52 +66,49 @@ def logger_initializer(queue):
 
 
 def main():
-    filesys.init(config.paths)
+    sys.stderr = open(".stderr.log", "a", buffering=1)
+    init(config.path)
 
-    signal.signal(signal.SIGTERM, worker_termination)
-    default_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    proc_count = config.sub_proc_count if config.sub_proc_count > 1 else cpu_count()
 
-    proc_count = cpu_count()
-    if config.sub_proc_count > 1:
-        proc_count = config.sub_proc_count
-
-    q = Queue(-1)
-    logger_process = Process(target=logger_initializer,
-                             args=(q,))
+    queue = Queue(-1)
+    logger_process = Process(target=logger_initializer, args=(queue,))
     logger_process.start()
-    p = Pool(proc_count,
-             initializer=worker_initializer,
-             initargs=(q,))
-    worker_initializer(q)
 
-    logger = logging.getLogger(f"pid={os.getpid()}")
+    init_logger(queue)
+
+    logger = get_logger()
     logger.info(f"Using thread count: {proc_count}")
-
-    signal.signal(signal.SIGINT, default_handler)
 
     Driver.check_installation(config.webdriver_settings)
 
-    try:
-        for m in active_modules.modules:
-            m.do_job(p)
+    p = Pool(proc_count, initializer=worker_constructor, initargs=(queue,))
 
-        p.map(Driver.close, range(proc_count), chunksize=1)
+    try:
+        for m in modules:
+            m.run(p)
+        p.close()
 
     except KeyboardInterrupt:
-        logger.info(f"Keyboard interruption")
+        logger.info("Keyboard interruption, closing gracefully")
         p.terminate()
 
-    except (Exception, ProtocolError):
-        import sys
-        import traceback
-        traceback.print_exc(file=sys.stderr)
+    except Exception as e:
+        p.terminate()
+        raise e
 
-    p.close()
-    p.join()
+    finally:
+        p.join()
 
-    q.put_nowait(None)
-    logger_process.join()
+        logger.info("Shutting down")
+        queue.put_nowait(None)
+        logger_process.join()
 
 
 if __name__ == "__main__":
-    main()
+    default_stderr = sys.stderr
+    try:
+        main()
+    except Exception as e:
+        sys.stderr = default_stderr
+        raise e

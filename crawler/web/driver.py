@@ -1,183 +1,191 @@
-import logging
 import os
-import pathlib
 import random
 import tempfile
-from time import sleep as sleep_
 
+from time import sleep
 from selenium import webdriver
-from selenium.common.exceptions import WebDriverException, TimeoutException, \
-    NoSuchElementException
 from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import (
+    WebDriverException, 
+    TimeoutException,
+    NoSuchElementException, 
+    NoAlertPresentException
+)
 
-import config
 from crawler.web.proxy import Proxy
-from tools.exceptions import CaptchaException
-from tools.text import parse_proxy
 
 
 class Driver:
+    _instance = None
 
     @classmethod
     def __new__(cls, *args, **kwargs):
-        if hasattr(cls, "_instance"):
-            return cls._instance
-        setattr(cls, "_instance", _DriverInstance(config.webdriver_settings))
-        return getattr(cls, "_instance")
+        from env import config
+        if cls._instance is None:
+            cls._instance = _DriverInstance(config.webdriver_settings)
+        return cls._instance
 
     @classmethod
-    def close(cls, *args, **kwargs):
-        if not hasattr(cls, "_instance"):
-            return
-        delattr(cls, "_instance")
+    def close(cls):
+        if cls._instance:
+            cls._instance.quit()
+            cls._instance = None
 
     @classmethod
     def check_installation(cls, conf):
-        logger = logging.getLogger(f"pid={os.getpid()}")
+        from tools.functions import get_logger
+        logger = get_logger()
         logger.info("Checking installed driver")
 
         try:
-            with open(os.path.relpath(conf["dotfile"]), "r") as f:
+            with open(conf.dotfile, "r") as f:
                 executable_path = f.read()
                 logger.info(f"Driver found at {executable_path}")
 
         except FileNotFoundError:
             logger.info("Driver is not found, installing...")
             executable_path = GeckoDriverManager().install()
-            with open(os.path.relpath(conf["dotfile"]), "w") as f:
+            with open(conf.dotfile, "w") as f:
                 f.write(executable_path)
 
 
 class _DriverInstance:
 
     def __init__(self, conf):
+        from tools.functions import get_logger
+        self.logger = get_logger()
+        self.logger.setLevel(conf.log_level)
 
-        self.config = conf
+        self._sanitize = conf.sanitizejs
+        self._conf = conf
 
-        self.max_error_attempts = conf["max_error_attempts"]
-        self.max_captcha_attempts = conf["max_captcha_attempts"]
-        self.max_timeout_attempts = conf["max_timeout_attempts"]
+        tempfile.tempdir = str(conf.temp_dir)
+        os.makedirs(conf.temp_dir, exist_ok=True)
+        self._driver = self.make_driver(conf)
 
-        self.logger = logging.getLogger(f"pid={os.getpid()}")
-        self.logger.setLevel(self.config["log_level"])
-
-        self._script_path = pathlib.Path(__file__).parent.resolve()
-        self._service_log_path = os.path.join(
-            os.path.relpath(self.config["log_path"]))
-
-        tempfile.tempdir = conf["temp_dir"]
-        try:
-            os.makedirs(tempfile.tempdir)
-        except FileExistsError:
-            pass
-
-        try:
-            profile = os.path.abspath(self.config['profile_path'])
-            self.logger.info(f"Using profile: {profile}")
-            self._profile = webdriver.FirefoxProfile(profile)
-        except (ValueError, TypeError, FileNotFoundError):
+    def make_driver(self, conf):
+        profile = None
+        if conf.profile_path:
+            self.logger.info(f"Using profile: {conf.profile_path}")
+            profile = webdriver.FirefoxProfile(conf.profile_path)
+        else:
             self.logger.warning("Wrong path for profile is specified")
             self.logger.warning("Using temporary profile")
-            self._profile = webdriver.FirefoxProfile()
+            profile = webdriver.FirefoxProfile()
 
-        if self.config["no_cache"]:
-            self._profile.set_preference("browser.cache.disk.enable", False)
-            self._profile.set_preference("browser.cache.memory.enable", False)
-            self._profile.set_preference("browser.cache.offline.enable", False)
-            self._profile.set_preference("network.http.use-cache", False)
-            self._profile.set_preference("dom.webdriver.enabled", False)
-            self._profile.set_preference("marionette.enabled", False)
+        if conf.no_cache:
+            profile.set_preference("browser.cache.disk.enable", False)
+            profile.set_preference("browser.cache.memory.enable", False)
+            profile.set_preference("browser.cache.offline.enable", False)
+            profile.set_preference("network.http.use-cache", False)
+            profile.set_preference("dom.webdriver.enabled", False)
+            profile.set_preference("marionette.enabled", False)
+            
+        if conf.use_proxy:
+            proxy = Proxy(conf.proxies, conf.proxies_from_conf)
+            http, port = proxy.get_proxy()
 
-        self._profile.set_preference("general.useragent.override",
-                                     random.choice(self.config['user_agents']))
-        self._profile.set_preference("intl.accept_languages", "en-US, en")
-        self._profile.update_preferences()
+            self.logger.info(f"Switching to {http}:{port} proxy")
 
-        self._options = webdriver.FirefoxOptions()
-        self._options.add_argument("--no-sandbox")
+            profile.set_preference("network.proxy.type", 1)
+            profile.set_preference("network.proxy.http", http)
+            profile.set_preference("network.proxy.http_port", port)
+            profile.set_preference("network.proxy.ssl", http)
+            profile.set_preference("network.proxy.ssl_port", port)
+            profile.set_preference("network.proxy.ftp", http)
+            profile.set_preference("network.proxy.ftp_port", port)
 
-        if self.config["headless"]:
-            self._options.add_argument("--headless")
-            self._options.add_argument('--disable-gpu')
+        if conf.private:
+            profile.set_preference("browser.privatebrowsing.autostart", True)
 
-        self._capabilities = self._options.to_capabilities()
-        self._capabilities["unexpectedAlertBehaviour"] = "accept"
+        profile.set_preference("general.useragent.override", random.choice(conf.user_agents))
+        profile.set_preference("intl.accept_languages", "en-US, en")
+        profile.update_preferences()
 
-        with open(os.path.relpath(self.config["dotfile"]), "r") as f:
-            self._executable_path = f.read()
+        options = Options()
+        options.add_argument("--no-sandbox")
+        if conf.headless:
+            options.add_argument("--headless")
+            options.add_argument('--disable-gpu')
+            options.profile = profile
 
-        self._driver = webdriver.Firefox(
-            firefox_profile=self._profile,
-            firefox_options=self._options,
-            executable_path=self._executable_path,
-            capabilities=self._capabilities,
-            service_log_path=self._service_log_path
-        )
+        executable_path = None
+        try:
+            with open(conf.dotfile, "r") as f:
+                executable_path = f.read().strip()
+        except FileNotFoundError:
+            self.logger.error(f"Dotfile with executable path not found: {conf.dotfile}")
+            raise
 
-        self._driver.set_page_load_timeout(conf["page_load_timeout"])
-        self._driver.set_script_timeout(conf["page_load_timeout"])
+        service = Service(executable_path=executable_path, log_output=str(conf.log_path))
 
-        with open(os.path.join(self._script_path, "navigator.js")) as script:
-            self._driver.execute_script(script.read())
+        driver = webdriver.Firefox(options=options,service=service)
+        driver.set_page_load_timeout(conf.page_load_timeout)
+        driver.set_script_timeout(conf.page_load_timeout)
+        driver.execute_script(conf.navigatorjs)
+        return driver
 
-    def get(self, url, cooldown=0, random_cooldown=0,
-            remove_invisible=False):
+    def get(self, url, cooldown=0, random_cooldown=0, remove_invisible=False):
+        from tools.exceptions import CaptchaException
+
         if not url:
             raise ValueError("Null url")
 
         self.logger.info(f"Going to {url}")
 
-        timeout_error = 0
-        net_error = 0
-        captcha_error = 0
-        while net_error < self.max_error_attempts \
-                or captcha_error < self.max_captcha_attempts \
-                or timeout_error < self.max_timeout_attempts:
-
-            self.sleep(cooldown, random_cooldown)
+        network_error, timeout_error, captcha_error = 0, 0, 0
+        while network_error < self._conf.max_error_attempts \
+                and captcha_error < self._conf.max_captcha_attempts \
+                and timeout_error < self._conf.max_timeout_attempts:
 
             try:
+                self.sleep(cooldown, random_cooldown)
                 self._driver.get(url)
 
                 try:
-                    if self._driver.find_element_by_xpath(
-                            "//iframe[contains(@src, 'recaptcha')]"):
-                        captcha_error += 1
+                    alert = self._driver.switch_to.alert
+                    alert.accept()
+                    self.logger.info(f"Alert accepted")
+                except NoAlertPresentException:
+                    pass
+
+                try:
+                    self._driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
+                    captcha_error += 1
+                    raise CaptchaException("Captcha iframe detected")
                 except NoSuchElementException:
                     pass
+
                 if remove_invisible:
                     self.remove_invisible()
+
                 return
 
             except TimeoutException:
                 self.logger.warning(f"Slow connection, retying {url}")
-                self.reset()
+                self._driver.quit()
+                self._driver = self.make_driver(self._conf)
                 timeout_error += 1
 
             except WebDriverException:
-                self.logger.warning(f"Web driver exception, potentially net "
-                                    f"error, retying {url}")
-                self.reset()
-                net_error += 1
+                self.logger.warning(f"Web driver exception, potentially net error, retying {url}")
+                self._driver.quit()
+                self._driver = self.make_driver(self._conf)
+                network_error += 1
 
             except CaptchaException:
                 self.logger.warning(f"Captcha detected, retying {url}")
-                self.reset()
+                self._driver.quit()
+                self._driver = self.make_driver(self._conf)
                 captcha_error += 1
 
     @classmethod
     def sleep(cls, cooldown, random_cooldown):
-        sleep_(cooldown + random.random() * random_cooldown)
-
-    def manage(self):
-        return self._driver
-
-    def reset(self):
-        self.change_proxy()
-        self.restart_session()
-        self.change_useragent()
-        self.clear_cookies()
+        sleep(cooldown + random.random() * random_cooldown)
 
     def source(self):
         return self._driver.page_source
@@ -189,46 +197,15 @@ class _DriverInstance:
         except TimeoutException:
             self.logger.warning("Wait timeout")
             return False
+        
+    def find_element(self, *args, **kwargs):
+        self._driver.find_element(*args, **kwargs)
 
     def remove_invisible(self):
-        with open(os.path.join(self._script_path, "sanitize.js")) as script:
-            self._driver.execute_script(script.read())
+        self._driver.execute_script(self._sanitize)
 
-    def clear_cookies(self):
-        self._driver.delete_all_cookies()
-
-    def change_useragent(self):
-        self._profile.set_preference("general.useragent.override",
-                                     random.choice(self.config['user_agents']))
-        self._profile.update_preferences()
-
-    def restart_session(self):
-        self._driver.close()
-        self._driver.start_session(capabilities=self._capabilities,
-                                   browser_profile=self._profile)
-
-    def change_proxy(self):
-        if not self.config["use_proxy"]:
-            return
-
-        proxy = Proxy()
-        p_str = proxy.get_proxy()
-        http, port = parse_proxy(p_str)
-
-        self.logger.info(f"Switching to {p_str} proxy")
-
-        self._profile.set_preference("network.proxy.type", 1)
-        self._profile.set_preference("network.proxy.http", http)
-        self._profile.set_preference("network.proxy.http_port", port)
-        self._profile.set_preference("network.proxy.ssl", http)
-        self._profile.set_preference("network.proxy.ssl_port", port)
-        self._profile.set_preference("network.proxy.ftp", http)
-        self._profile.set_preference("network.proxy.ftp_port", port)
-        self._profile.update_preferences()
-
-    def __del__(self):
-        if not hasattr(self, "_driver") or self._driver is None:
-            return
+    def quit(self):
         self._driver.quit()
-        del self._driver
+        self._driver = None
         self.logger.info("Driver has been closed")
+        

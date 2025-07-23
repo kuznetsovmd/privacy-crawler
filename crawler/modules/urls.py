@@ -1,22 +1,17 @@
-from multiprocessing import Pool
+from multiprocessing.pool import Pool
 
-import active_plugins
 from crawler.modules.module import Module
+from tools.functions import get_logger
 
 
 class Urls(Module):
 
-    def __init__(self):
-        super(Urls, self).__init__()
-
-    def bootstrap(self):
-        pass
+    def __init__(self, plugins):
+        self.plugins = plugins
 
     def run(self, p: Pool = None):
-        self.logger.info("Searching urls")
+        get_logger().info("Searching urls")
 
-        for plugin in active_plugins.plugins:
-            plugin.scrap(p)
-
-    def finish(self):
-        pass
+        for plugin in self.plugins:
+            plugin.scrap_records(p)
+            

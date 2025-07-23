@@ -1,68 +1,92 @@
-import json
-import logging
-import os
 from hashlib import md5
-from multiprocessing import Pool
+from functools import partial
+from itertools import chain
+from multiprocessing.pool import Pool
+from bs4 import BeautifulSoup
 
 from crawler.modules.module import Module
-from crawler.product import Product
 from crawler.web.driver import Driver
-from tools.text import url_to_name
+from tools.functions import (
+    chunked,
+    concat_files,
+    get_logger,
+    load_last_id_page, 
+    read_models,
+    skip_to, 
+    temp_descriptor, 
+    write_models
+)
+
+
+def download_and_hash(policy, html_dir):
+    logger = get_logger()
+    logger.info(f"Getting policy from {policy}")
+
+    driver = Driver()
+    driver.get(policy, remove_invisible=True)
+
+    markup = driver.source()
+    if not markup:
+        return policy, None
+
+    soup = BeautifulSoup(markup, "lxml").find("body")
+    if not soup:
+        return policy, None
+
+    content = (
+        "<html>\n"
+        "<head>\n"
+        "\t<meta charset=\"utf-8\"/>\n"
+        "\t<title></title>\n"
+        "</head>\n"
+        f"{soup.prettify().replace('\t', ' ' * 4)}\n"
+        "</html>"
+    )
+    content_hash = md5(content.encode()).hexdigest()
+
+    with open(html_dir / f"{content_hash}.html", "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return policy, content_hash
 
 
 class Downloader(Module):
 
-    def __init__(self, policies_json, explicit_json, downloaded_json,
-                 original_policies, cooldown=0., random_cooldown=0.):
+    def __init__(self, cls, descriptor, explicit, html, chunk_size=64):
+        self.cls = cls
+        self.descriptor = descriptor
+        self.explicit = explicit
+        self.html = html
+        self.chunk_size = chunk_size
+        self.logger = get_logger()
 
-        super(Downloader, self).__init__()
+    def run(self, pool: Pool = None):
+        self.logger.info("Downloading policies")
 
-        self.policies_json = policies_json
-        self.explicit_json = explicit_json
-        self.downloaded_json = downloaded_json
-        self.original_policies = original_policies
-        self.cooldown = cooldown
-        self.random_cooldown = random_cooldown
+        tmp1 = temp_descriptor(self.descriptor, self.__class__.__name__, "combined")
+        tmp2 = temp_descriptor(self.descriptor, self.__class__.__name__, "cache")
+        tmp3 = temp_descriptor(self.descriptor, self.__class__.__name__, "tmp")
 
-    def run(self, p: Pool = None):
-        self.logger.info("Download")
+        worker_func = partial(download_and_hash, html_dir=self.html)
 
-        jobs = filter(None, set(r["policy"] for r in self.records))
-        downloaded = p.map(self.get_policy, jobs)
+        concat_files([self.descriptor, self.explicit], tmp1)
+        last_id, _ = load_last_id_page(tmp2)
 
-        for item in self.records:
-            for policy, policy_path, policy_hash in downloaded:
-                if policy == item["policy"]:
-                    item["original_policy"] = policy_path
-                    item["policy_hash"] = policy_hash
+        models_iter = read_models(tmp1, self.cls)
+        skipped_iter = skip_to(models_iter, last_id, lambda x: x.id)
 
-    def bootstrap(self):
+        p_cache = dict()
+        for models in chunked(skipped_iter, self.chunk_size):
+            models = list(models)
+            new_policies = [m.policy for m in models if m.policy and m.policy not in p_cache]
 
-        with open(os.path.relpath(self.policies_json), "r") as f:
-            self.records.extend(json.load(f))
+            for policy, content_hash in pool.imap(worker_func, new_policies):
+                p_cache[policy] = content_hash
 
-        with open(os.path.relpath(self.explicit_json), "r") as f:
-            explicit = json.load(f)
-            Product.counter = len(self.records)
-            explicit = [Product(**item) for item in explicit]
-            self.records.extend(explicit)
+            for m in models:
+                m.hash = p_cache.get(m.policy, None)
 
-    def finish(self):
-        with open(os.path.relpath(self.downloaded_json), "w") as f:
-            json.dump(self.records, f, indent=2)
+            write_models(tmp2, models, mode="a")
 
-    def get_policy(self, policy_url):
-        logger = logging.getLogger(f"pid={os.getpid()}")
-        logger.info(f"Getting for policy to {policy_url}")
-
-        Driver().get(policy_url, cooldown=self.cooldown,
-                     random_cooldown=self.random_cooldown,
-                     remove_invisible=True)
-        if markup := Driver().source():
-            policy = os.path.relpath(os.path.join(self.original_policies,
-                                                  url_to_name(policy_url)))
-            with open(policy, "w", encoding="utf-8") as f:
-                f.write(markup)
-            return policy_url, policy, md5(markup.encode()).hexdigest()
-
-        return policy_url, None, None
+        concat_files([tmp2], tmp3)
+        tmp3.replace(self.descriptor)

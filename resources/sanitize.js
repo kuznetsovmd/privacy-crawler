@@ -31,4 +31,4 @@
         setTimeout(try_remove, 100)
     }
 
-})();
+})()

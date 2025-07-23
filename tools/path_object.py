@@ -1,2 +1,0 @@
-class PathsObject:
-    pass
